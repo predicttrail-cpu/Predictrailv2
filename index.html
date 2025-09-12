@@ -1,0 +1,587 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Générateur de Plan de Course Trail</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Leaflet JS & CSS for interactive maps -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <!-- togeojson library to convert GPX to GeoJSON format for Leaflet -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/togeojson/0.16.0/togeojson.min.js"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; }
+        .loader {
+            border: 4px solid #f3f3f3; border-top: 4px solid #3498db;
+            border-radius: 50%; width: 40px; height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #555; }
+        /* Leaflet map custom message */
+        .leaflet-map-message {
+            position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 5px 15px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            z-index: 1000; font-size: 0.9em; pointer-events: none;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800">
+
+    <!-- Template pour une ligne de performance de référence -->
+    <template id="reference-template">
+        <!-- ... (contenu du template inchangé) ... -->
+        <div class="reference-item p-4 border rounded-lg bg-gray-50/50 relative">
+            <button type="button" class="remove-reference-btn absolute top-1 right-2 text-xl text-gray-400 hover:text-red-500 font-bold">&times;</button>
+            <div class="grid grid-cols-2 gap-x-4 gap-y-3">
+                <div><label class="block text-xs font-medium text-gray-600">Distance (km)</label><input type="number" value="10" class="refDistance mt-1 block w-full bg-white border border-gray-300 rounded-md shadow-sm p-2 text-sm focus:ring-blue-500 focus:border-blue-500"></div>
+                <div><label class="block text-xs font-medium text-gray-600">Temps (hh:mm:ss)</label><input type="text" value="00:50:00" placeholder="hh:mm:ss" class="refTime mt-1 block w-full bg-white border border-gray-300 rounded-md shadow-sm p-2 text-sm focus:ring-blue-500 focus:border-blue-500"></div>
+                <div><label class="block text-xs font-medium text-gray-600">D+ (m)</label><input type="number" value="0" class="refElevGain mt-1 block w-full bg-white border border-gray-300 rounded-md shadow-sm p-2 text-sm focus:ring-blue-500 focus:border-blue-500"></div>
+                <div><label class="block text-xs font-medium text-gray-600">D- (m)</label><input type="number" value="0" class="refElevLoss mt-1 block w-full bg-white border border-gray-300 rounded-md shadow-sm p-2 text-sm focus:ring-blue-500 focus:border-blue-500"></div>
+                <div class="col-span-2"><label class="block text-xs font-medium text-gray-600">Technicité (<span class="tech-value">3</span>/5)</label><input type="range" min="1" max="5" value="3" step="0.5" class="refTech w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"></div>
+            </div>
+        </div>
+    </template>
+
+    <!-- Template pour la liste des points de ravitaillement -->
+    <template id="aid-station-template">
+        <li class="aid-station-item flex items-center justify-between p-2 bg-gray-50 rounded-md">
+            <div class="flex items-center">
+                <span class="font-bold text-blue-600 mr-2">📍</span>
+                <input type="text" class="station-name bg-transparent text-sm p-1 rounded-md focus:ring-1 focus:ring-blue-500 focus:bg-white" placeholder="Nom du point">
+            </div>
+            <div class="flex items-center">
+                <span class="station-distance text-sm text-gray-600 mr-3"></span>
+                <button type="button" class="remove-station-btn text-red-400 hover:text-red-600 font-bold">&times;</button>
+            </div>
+        </li>
+    </template>
+
+
+    <div class="container mx-auto p-4 md:p-8 max-w-5xl">
+        <header class="text-center mb-8">
+            <h1 class="text-3xl md:text-4xl font-bold text-gray-900">Planificateur d'Allure & Nutrition Trail</h1>
+            <p class="text-gray-600 mt-2">Estimez votre temps de course et générez un plan de nutrition détaillé à partir d'un fichier GPX.</p>
+        </header>
+
+        <div class="bg-white p-6 rounded-2xl shadow-lg mb-8">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- Section des entrées utilisateur -->
+                <div class="space-y-6">
+                    <h2 class="text-xl font-semibold border-b pb-2">1. Paramètres Athlète</h2>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div><label for="weight" class="block text-sm font-medium text-gray-700">Votre Poids (kg)</label><input type="number" id="weight" value="70" class="mt-1 block w-full bg-gray-50 border border-gray-300 rounded-lg shadow-sm p-3 focus:ring-blue-500 focus:border-blue-500"></div>
+                        <div><label for="gender" class="block text-sm font-medium text-gray-700">Sexe</label><select id="gender" class="mt-1 block w-full bg-gray-50 border border-gray-300 rounded-lg shadow-sm p-3 focus:ring-blue-500 focus:border-blue-500"><option value="homme" selected>Homme</option><option value="femme">Femme</option></select></div>
+                    </div>
+
+                    <h3 class="text-lg font-medium pt-2">Performances de Référence</h3>
+                    <div id="reference-list" class="space-y-4"></div>
+                    <button id="addReferenceBtn" type="button" class="w-full text-sm text-blue-600 hover:text-blue-800 font-medium py-2 border-2 border-dashed border-blue-300 rounded-lg hover:bg-blue-50 transition-colors duration-200">+ Ajouter une autre référence</button>
+                </div>
+
+                <!-- Section de configuration -->
+                <div class="space-y-6 bg-gray-50 p-6 rounded-2xl border">
+                    <h2 class="text-xl font-semibold border-b pb-2">2. Configuration du Modèle</h2>
+                     <p class="text-sm text-gray-500">Ajustez les multiplicateurs pour le parcours cible.</p>
+                    <div><label for="gpxFile" class="block text-sm font-medium text-gray-700">Charger un Fichier GPX</label><input type="file" id="gpxFile" accept=".gpx" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"></div>
+                    <div id="splitDistanceContainer"><label for="splitDistance" class="block text-sm font-medium text-gray-700">Diviser les segments tous les (km)</label><input type="number" id="splitDistance" value="5" class="mt-1 block w-full bg-white border border-gray-300 rounded-lg shadow-sm p-3 focus:ring-blue-500 focus:border-blue-500"></div>
+                    <div><label for="techMultiplier" class="block text-sm font-medium text-gray-700">Technicité du parcours cible (1.0 = facile, 1.3 = difficile)</label><input type="number" id="techMultiplier" value="1.05" step="0.01" class="mt-1 block w-full bg-white border border-gray-300 rounded-lg shadow-sm p-3 focus:ring-blue-500 focus:border-blue-500"></div>
+                    <div><label for="fatigueFactor" class="block text-sm font-medium text-gray-700">Facteur de Fatigue (% ralentissement final)</label><input type="number" id="fatigueFactor" value="15" step="1" class="mt-1 block w-full bg-white border border-gray-300 rounded-lg shadow-sm p-3 focus:ring-blue-500 focus:border-blue-500"></div>
+                    <div><label for="carbIntake" class="block text-sm font-medium text-gray-700">Objectif Glucides (g/heure)</label><input type="number" id="carbIntake" value="60" step="5" class="mt-1 block w-full bg-white border border-gray-300 rounded-lg shadow-sm p-3 focus:ring-blue-500 focus:border-blue-500"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Section Parcours & Ravitaillements -->
+        <div id="map-section" class="bg-white p-6 rounded-2xl shadow-lg mb-8 hidden">
+            <h2 class="text-xl font-semibold border-b pb-2 mb-4">3. Parcours & Ravitaillements</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div class="md:col-span-2 relative">
+                    <div id="map" class="h-96 w-full rounded-lg shadow-md bg-gray-200"></div>
+                    <div id="map-message" class="leaflet-map-message hidden"></div>
+                </div>
+                <div class="space-y-3">
+                    <h3 class="font-medium">Points de Ravitaillement</h3>
+                    <p class="text-xs text-gray-500">Cliquez sur le parcours pour ajouter un point. Ils serviront à découper la course.</p>
+                    <ul id="aid-stations-list" class="space-y-2 max-h-80 overflow-y-auto pr-2">
+                        <!-- Les points de ravitaillement seront injectés ici -->
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="text-center mb-8">
+            <button id="calculateBtn" class="w-full md:w-auto bg-blue-600 text-white font-bold py-3 px-8 rounded-lg hover:bg-blue-700 transition-colors duration-300 shadow-md flex items-center justify-center mx-auto">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm1-12a1 1 0 10-2 0v4a1 1 0 00.293.707l2.828 2.829a1 1 0 101.414-1.414L11 9.586V6z" clip-rule="evenodd" /></svg>
+                Générer le Plan de Course
+            </button>
+        </div>
+
+        <!-- Section des résultats -->
+        <div id="results" class="mt-10 hidden">
+             <!-- ... (contenu des résultats inchangé) ... -->
+            <div id="loader" class="flex justify-center items-center my-8 hidden"><div class="loader"></div><p class="ml-4 text-gray-600">Analyse du GPX et calcul de votre plan en cours...</p></div>
+            <div id="resultsContent">
+                <h2 class="text-2xl font-bold mb-4 text-center">Votre Plan de Course Personnalisé</h2>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8 text-center">
+                    <div class="bg-white p-4 rounded-xl shadow-md"><h3 class="text-sm font-medium text-gray-500">Temps Total</h3><p id="totalTime" class="text-2xl font-bold text-blue-600">--:--:--</p></div>
+                    <div class="bg-white p-4 rounded-xl shadow-md"><h3 class="text-sm font-medium text-gray-500">Distance Totale</h3><p id="totalDistance" class="text-2xl font-bold">0 km</p></div>
+                    <div class="bg-white p-4 rounded-xl shadow-md"><h3 class="text-sm font-medium text-gray-500">Dénivelé Positif</h3><p id="totalElevation" class="text-2xl font-bold">0 m</p></div>
+                    <div class="bg-white p-4 rounded-xl shadow-md"><h3 class="text-sm font-medium text-gray-500">Calories Brûlées</h3><p id="totalCalories" class="text-2xl font-bold">0 kcal</p></div>
+                </div>
+                <div class="bg-white p-4 rounded-2xl shadow-lg overflow-x-auto">
+                    <table class="w-full text-sm text-left text-gray-500"><thead class="text-xs text-gray-700 uppercase bg-gray-50"><tr><th scope="col" class="px-6 py-3">Segment</th><th scope="col" class="px-6 py-3">Distance</th><th scope="col" class="px-6 py-3">Dén. Positif</th><th scope="col" class="px-6 py-3">Temps Intermédiaire</th><th scope="col" class="px-6 py-3">Allure</th><th scope="col" class="px-6 py-3">Temps Cumulé</th><th scope="col" class="px-6 py-3">Calories</th><th scope="col" class="px-6 py-3">Glucides Requis</th></tr></thead><tbody id="resultsTableBody"></tbody></table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- Variables Globales ---
+        let map = null;
+        let gpxLayer = null;
+        let aidStations = []; // [{lat, lon, cumulativeDistance, marker, id}]
+        let gpxPointsCache = [];
+        const config = { baseEnergyCost: 1.0, minettiUphillCost: 8.0, minettiDownhillCost: 2.0 };
+
+        // --- ÉLÉMENTS DU DOM ---
+        const gpxFileInput = document.getElementById('gpxFile');
+        const calculateBtn = document.getElementById('calculateBtn');
+        const resultsDiv = document.getElementById('results');
+        const loader = document.getElementById('loader');
+        const resultsContent = document.getElementById('resultsContent');
+        const mapSection = document.getElementById('map-section');
+
+        // --- INITIALISATION ---
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('addReferenceBtn').addEventListener('click', addReferenceRow);
+            addReferenceRow();
+            gpxFileInput.addEventListener('change', handleGpxFileUpload);
+            calculateBtn.addEventListener('click', handleCalculation);
+        });
+
+        function addReferenceRow() { /* ... (fonction inchangée) ... */
+            const template = document.getElementById('reference-template');
+            const clone = template.content.cloneNode(true);
+            const referenceList = document.getElementById('reference-list');
+            const removeBtn = clone.querySelector('.remove-reference-btn');
+            removeBtn.addEventListener('click', (e) => {
+                if (referenceList.children.length > 1) e.target.closest('.reference-item').remove();
+                else alert("Vous devez conserver au moins une performance de référence.");
+            });
+            const techSlider = clone.querySelector('.refTech');
+            const techValueSpan = clone.querySelector('.tech-value');
+            techSlider.addEventListener('input', () => { techValueSpan.textContent = techSlider.value; });
+            referenceList.appendChild(clone);
+        }
+
+        async function handleGpxFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            mapSection.classList.remove('hidden');
+            const gpxText = await file.text();
+            displayGpxOnMap(gpxText);
+            gpxPointsCache = await parseGPX(gpxText);
+        }
+
+        function displayGpxOnMap(gpxText) {
+            if (!map) {
+                map = L.map('map').setView([46.603354, 1.888334], 5); // France view
+                L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                }).addTo(map);
+            }
+
+            if (gpxLayer) map.removeLayer(gpxLayer);
+            aidStations.forEach(s => map.removeLayer(s.marker));
+            aidStations = [];
+            updateAidStationsList();
+
+            const domParser = new DOMParser();
+            const gpxDom = domParser.parseFromString(gpxText, 'text/xml');
+            const geojson = toGeoJSON.gpx(gpxDom);
+
+            gpxLayer = L.geoJSON(geojson, {
+                style: { color: '#3b82f6', weight: 4, opacity: 0.8 }
+            }).addTo(map);
+
+            map.fitBounds(gpxLayer.getBounds());
+
+            gpxLayer.on('click', (e) => {
+                addAidStation(e.latlng);
+            });
+
+            const mapMessage = document.getElementById('map-message');
+            mapMessage.textContent = 'Cliquez sur le parcours pour ajouter un point de ravitaillement';
+            mapMessage.classList.remove('hidden');
+            setTimeout(() => mapMessage.classList.add('hidden'), 4000);
+        }
+
+        function addAidStation(latlng) {
+            if (gpxPointsCache.length < 2) return;
+            const bestMatch = findClosestPointOnTrack(latlng, gpxPointsCache);
+            if (!bestMatch) return; // Could happen if track is not valid, or click is too far.
+
+            const { point, cumulativeDistance } = bestMatch;
+
+            const stationId = Date.now();
+            const marker = L.marker(point, { draggable: false }).addTo(map);
+
+            const newStation = {
+                lat: point.lat,
+                lon: point.lon,
+                cumulativeDistance: cumulativeDistance, // Use precise distance
+                marker,
+                id: stationId,
+                name: `Point ${aidStations.length + 1}`
+            };
+
+            marker.bindPopup(`<b>${newStation.name}</b><br>~${(newStation.cumulativeDistance / 1000).toFixed(2)} km`).openPopup();
+
+            aidStations.push(newStation);
+            aidStations.sort((a, b) => a.cumulativeDistance - b.cumulativeDistance);
+            updateAidStationsList();
+        }
+
+        function updateAidStationsList() {
+            const list = document.getElementById('aid-stations-list');
+            list.innerHTML = '';
+
+            aidStations.forEach(station => {
+                const template = document.getElementById('aid-station-template');
+                const clone = template.content.cloneNode(true);
+                const li = clone.querySelector('li');
+                li.dataset.stationId = station.id;
+
+                const nameInput = clone.querySelector('.station-name');
+                nameInput.value = station.name;
+                nameInput.addEventListener('change', (e) => {
+                    station.name = e.target.value;
+                    station.marker.bindPopup(`<b>${station.name}</b><br>~${(station.cumulativeDistance / 1000).toFixed(2)} km`).openPopup();
+                });
+
+                clone.querySelector('.station-distance').textContent = `${(station.cumulativeDistance / 1000).toFixed(2)} km`;
+
+                clone.querySelector('.remove-station-btn').addEventListener('click', () => {
+                    const index = aidStations.findIndex(s => s.id === station.id);
+                    if (index > -1) {
+                        map.removeLayer(aidStations[index].marker);
+                        aidStations.splice(index, 1);
+                        updateAidStationsList();
+                    }
+                });
+                list.appendChild(clone);
+            });
+
+            document.getElementById('splitDistanceContainer').style.display = aidStations.length > 0 ? 'none' : 'block';
+        }
+
+        // --- GESTIONNAIRE DE CALCUL PRINCIPAL ---
+        async function handleCalculation() {
+            // ... (validation inchangée) ...
+            const weight = parseFloat(document.getElementById('weight').value);
+            const gender = document.getElementById('gender').value;
+            const splitDistance = parseFloat(document.getElementById('splitDistance').value);
+            const techMultiplier = parseFloat(document.getElementById('techMultiplier').value);
+            const fatigueFactor = parseFloat(document.getElementById('fatigueFactor').value) / 100;
+            const carbIntake = parseFloat(document.getElementById('carbIntake').value);
+            if (!weight || !gpxFileInput.files[0]) {
+                alert('Veuillez renseigner votre poids et charger un fichier GPX.'); return;
+            }
+
+            resultsDiv.classList.remove('hidden');
+            loader.classList.remove('hidden');
+            resultsContent.style.display = 'none';
+
+            try {
+                const averageBasePaceSecPerM = calculateAverageBasePace();
+
+                const segments = aidStations.length > 0
+                    ? createSegmentsFromAidStations(gpxPointsCache, aidStations)
+                    : createSegmentsByDistance(gpxPointsCache, splitDistance * 1000);
+
+                const racePlan = generateRacePlan({
+                    segments, weight, gender, basePaceSecPerM: averageBasePaceSecPerM,
+                    techMultiplier, fatigueFactor, carbIntake,
+                });
+
+                displayResults(racePlan);
+            } catch (error) {
+                console.error("Erreur de calcul:", error);
+                alert("Une erreur est survenue: " + error.message);
+            } finally {
+                loader.classList.add('hidden');
+                resultsContent.style.display = 'block';
+            }
+        }
+
+        function calculateAverageBasePace() { /* ... (fonction inchangée) ... */
+            const referenceItems = document.querySelectorAll('#reference-list .reference-item');
+            if (referenceItems.length === 0) throw new Error("Veuillez ajouter au moins une performance de référence.");
+            const basePaces = [];
+            referenceItems.forEach(item => {
+                const ref = {
+                    distance: parseFloat(item.querySelector('.refDistance').value) * 1000,
+                    time: parseTimeToSeconds(item.querySelector('.refTime').value),
+                    elevGain: parseFloat(item.querySelector('.refElevGain').value),
+                    elevLoss: parseFloat(item.querySelector('.refElevLoss').value),
+                    tech: parseFloat(item.querySelector('.refTech').value),
+                };
+                if (ref.distance > 0 && ref.time > 0) {
+                    const refTechMultiplier = 1 + (ref.tech - 1) * 0.075;
+                    const pace = calculateEquivalentFlatPace(ref, refTechMultiplier);
+                    basePaces.push(pace);
+                }
+            });
+            if (basePaces.length === 0) throw new Error("Veuillez entrer des valeurs valides pour au moins une référence.");
+            return basePaces.reduce((a, b) => a + b, 0) / basePaces.length;
+        }
+
+        function calculateEquivalentFlatPace(ref, refTechMultiplier) { /* ... (fonction inchangée) ... */
+            if (ref.distance <= 0) return 0;
+            const totalElev = ref.elevGain + ref.elevLoss;
+            if (totalElev === 0) return ref.time / (ref.distance * refTechMultiplier);
+            const distUp = ref.distance * (ref.elevGain / totalElev);
+            const distDown = ref.distance - distUp;
+            const slopeUp = distUp > 0 ? ref.elevGain / distUp : 0;
+            const slopeDown = distDown > 0 ? -ref.elevLoss / distDown : 0;
+            const costFactorUp = getMinettiCostFactor(slopeUp);
+            const costFactorDown = getMinettiCostFactor(slopeDown);
+            const avgMinettiFactor = ((costFactorUp * distUp) + (costFactorDown * distDown)) / ref.distance;
+            return ref.time / (ref.distance * avgMinettiFactor * refTechMultiplier);
+        }
+
+        // --- FONCTIONS LOGIQUES PRINCIPALES ---
+        function parseGPX(gpxText) {
+            return new Promise((resolve, reject) => {
+                const parser = new DOMParser();
+                const xmlDoc = parser.parseFromString(gpxText, "text/xml");
+                const trackpoints = xmlDoc.getElementsByTagName('trkpt');
+                if (trackpoints.length === 0) return reject(new Error("Aucun point de trace (<trkpt>) trouvé."));
+
+                const points = [];
+                let totalDistance = 0;
+                for (let i = 0; i < trackpoints.length; i++) {
+                    const lat = parseFloat(trackpoints[i].getAttribute('lat'));
+                    const lon = parseFloat(trackpoints[i].getAttribute('lon'));
+                    const ele = parseFloat(trackpoints[i].getElementsByTagName('ele')[0].textContent);
+                    if (i > 0) totalDistance += haversineDistance(points[i - 1], { lat, lon });
+                    points.push({ lat, lon, ele, cumulativeDistance: totalDistance });
+                }
+                resolve(points);
+            });
+        }
+
+        function createSegmentsByDistance(points, segmentLengthMeters) { /* ... (logique déplacée de createSegments) ... */
+            const segments = [];
+            if(points.length < 2) return segments;
+            let currentSegmentPoints = [points[0]];
+            let segmentStartDistance = points[0].cumulativeDistance;
+            for (let i = 1; i < points.length; i++) {
+                const point = points[i];
+                currentSegmentPoints.push(point);
+                if (point.cumulativeDistance - segmentStartDistance >= segmentLengthMeters) {
+                    segments.push(processSegment(currentSegmentPoints));
+                    currentSegmentPoints = [point];
+                    segmentStartDistance = point.cumulativeDistance;
+                }
+            }
+            if (currentSegmentPoints.length > 1) segments.push(processSegment(currentSegmentPoints));
+            return segments;
+        }
+
+        function createSegmentsFromAidStations(points, stations) {
+            if (points.length < 2) return [];
+
+            // 1. Create a list of all points that define segment boundaries.
+            const splitPoints = [];
+
+            // Add the start point.
+            splitPoints.push({ ...points[0], name: "Départ" });
+
+            // Add aid stations with interpolated elevation.
+            stations.forEach(station => {
+                const segmentIndex = findSegmentIndexForDistance(points, station.cumulativeDistance);
+                const p1 = points[segmentIndex];
+                const p2 = points[segmentIndex + 1];
+
+                // Interpolate elevation
+                let interpolatedEle = p1.ele;
+                const segmentDist = p2.cumulativeDistance - p1.cumulativeDistance;
+                if (segmentDist > 0) {
+                    const ratio = (station.cumulativeDistance - p1.cumulativeDistance) / segmentDist;
+                    interpolatedEle = p1.ele + (p2.ele - p1.ele) * ratio;
+                }
+
+                splitPoints.push({
+                    lat: station.lat,
+                    lon: station.lon,
+                    ele: interpolatedEle,
+                    cumulativeDistance: station.cumulativeDistance,
+                    name: station.name
+                });
+            });
+
+            // Add the final arrival point.
+            splitPoints.push({ ...points[points.length - 1], name: "Arrivée" });
+
+            // 2. Sort split points and remove duplicates (if any)
+            splitPoints.sort((a, b) => a.cumulativeDistance - b.cumulativeDistance);
+
+            const uniqueSplitPoints = splitPoints.filter((point, index, self) =>
+                index === self.findIndex((p) => p.cumulativeDistance === point.cumulativeDistance)
+            );
+
+            // 3. Build the segments
+            const segments = [];
+            let gpxCursor = 0;
+
+            for (let i = 0; i < uniqueSplitPoints.length - 1; i++) {
+                const startSplit = uniqueSplitPoints[i];
+                const endSplit = uniqueSplitPoints[i + 1];
+
+                if (endSplit.cumulativeDistance <= startSplit.cumulativeDistance) continue;
+
+                const segmentGpxPoints = [startSplit];
+
+                while (gpxCursor < points.length && points[gpxCursor].cumulativeDistance <= startSplit.cumulativeDistance) {
+                    gpxCursor++;
+                }
+
+                while (gpxCursor < points.length && points[gpxCursor].cumulativeDistance < endSplit.cumulativeDistance) {
+                    segmentGpxPoints.push(points[gpxCursor]);
+                    gpxCursor++;
+                }
+
+                segmentGpxPoints.push(endSplit);
+
+                if (segmentGpxPoints.length > 0) {
+                     segments.push({ ...processSegment(segmentGpxPoints), name: endSplit.name });
+                }
+            }
+            return segments;
+        }
+
+        function processSegment(segmentPoints) { /* ... (fonction inchangée) ... */
+            const startPoint = segmentPoints[0];
+            const endPoint = segmentPoints[segmentPoints.length - 1];
+            const distance = endPoint.cumulativeDistance - startPoint.cumulativeDistance;
+            let elevationGain = 0;
+            for (let i = 1; i < segmentPoints.length; i++) {
+                const eleDiff = segmentPoints[i].ele - segmentPoints[i - 1].ele;
+                if (eleDiff > 0) elevationGain += eleDiff;
+            }
+            const slope = distance > 0 ? (endPoint.ele - startPoint.ele) / distance : 0;
+            return { distance, elevationGain, slope, name: null };
+        }
+
+        function generateRacePlan(params) { /* ... (logique inchangée) ... */
+            const { segments, weight, gender, basePaceSecPerM, techMultiplier, fatigueFactor, carbIntake } = params;
+            const totalRaceDistanceKm = segments.reduce((acc, s) => acc + s.distance, 0) / 1000;
+            const energyCostMultiplier = gender === 'femme' ? 0.95 : 1.0;
+            let cumulativeTime = 0, cumulativeCalories = 0, plan = [];
+            let roughTotalTime = 0;
+            segments.forEach(segment => {
+                const minettiFactor = getMinettiCostFactor(segment.slope);
+                roughTotalTime += segment.distance * basePaceSecPerM * minettiFactor * techMultiplier;
+            });
+            segments.forEach(segment => {
+                const dist_i = segment.distance;
+                const minettiFactor = getMinettiCostFactor(segment.slope);
+                const fatigueMultiplier = 1 + (fatigueFactor * (cumulativeTime / (roughTotalTime || 1)));
+                const t_i = dist_i * basePaceSecPerM * minettiFactor * techMultiplier * fatigueMultiplier;
+                const calories = (dist_i / 1000) * weight * config.baseEnergyCost * energyCostMultiplier * minettiFactor;
+                const carbsNeeded = (t_i / 3600) * carbIntake;
+                cumulativeTime += t_i;
+                cumulativeCalories += calories;
+                plan.push({ name: segment.name, distance: dist_i, elevationGain: segment.elevationGain, splitTime: t_i, pace: t_i / (dist_i / 1000), cumulativeTime, calories, carbsNeeded });
+            });
+            return { plan, totalRaceDistanceKm };
+        }
+
+        // --- FONCTIONS UTILITAIRES ---
+        function findSegmentIndexForDistance(points, distance) {
+            // Find the index of the first point whose cumulative distance is >= the target distance.
+            const nextPointIndex = points.findIndex(p => p.cumulativeDistance >= distance);
+
+            if (nextPointIndex === -1) {
+                // The distance is beyond the last point of the track.
+                // Consider it part of the last segment.
+                return points.length - 2;
+            }
+            if (nextPointIndex === 0) {
+                // The distance is at or before the very first point.
+                return 0;
+            }
+            // The point lies on the segment between (nextPointIndex - 1) and nextPointIndex.
+            return nextPointIndex - 1;
+        }
+
+        function findClosestPointOnTrack(latlng, trackPoints) {
+            let minDistance = Infinity;
+            let bestMatch = null;
+
+            if (trackPoints.length < 2) return null;
+
+            for (let i = 0; i < trackPoints.length - 1; i++) {
+                const p1 = trackPoints[i];
+                const p2 = trackPoints[i + 1];
+                const p1_ll = L.latLng(p1.lat, p1.lon);
+                const p2_ll = L.latLng(p2.lat, p2.lon);
+
+                const closestPointOnSegment = L.GeometryUtil.closest(map, [p1_ll, p2_ll], latlng);
+
+                if (closestPointOnSegment) {
+                    const distanceToClick = closestPointOnSegment.distance;
+
+                    if (distanceToClick < minDistance) {
+                        minDistance = distanceToClick;
+
+                        const distanceFromP1 = p1_ll.distanceTo(closestPointOnSegment);
+                        const interpolatedCumulativeDistance = p1.cumulativeDistance + distanceFromP1;
+
+                        bestMatch = {
+                            point: closestPointOnSegment, // This is a L.LatLng object
+                            cumulativeDistance: interpolatedCumulativeDistance
+                        };
+                    }
+                }
+            }
+            return bestMatch;
+        }
+
+        function getMinettiCostFactor(slope) { /* ... (inchangé) ... */ if(slope >= 0) return 1 + config.minettiUphillCost * slope; else return 1 - config.minettiDownhillCost * slope; }
+        function haversineDistance(p1, p2) { /* ... (inchangé) ... */ const R=6371e3; const φ1=p1.lat*Math.PI/180, φ2=p2.lat*Math.PI/180, Δφ=(p2.lat-p1.lat)*Math.PI/180, Δλ=(p2.lon-p1.lon)*Math.PI/180; const a=Math.sin(Δφ/2)*Math.sin(Δφ/2)+Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)*Math.sin(Δλ/2); return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));}
+        function parseTimeToSeconds(t) { /* ... (inchangé) ... */ const p=t.split(':').map(Number); if(p.length===3)return p[0]*3600+p[1]*60+p[2]; if(p.length===2)return p[0]*60+p[1]; return 0; }
+        function formatTime(s) { /* ... (inchangé) ... */ const h=Math.floor(s/3600).toString().padStart(2,'0'),m=Math.floor(s%3600/60).toString().padStart(2,'0'),sec=Math.floor(s%60).toString().padStart(2,'0'); return `${h}:${m}:${sec}`; }
+        function formatPace(s) { /* ... (inchangé) ... */ if(isNaN(s)||!isFinite(s))return"00'00\"/km"; const m=Math.floor(s/60).toString().padStart(2,'0'),sec=Math.floor(s%60).toString().padStart(2,'0'); return `${m}'${sec}"/km`; }
+
+        // --- FONCTION D'AFFICHAGE ---
+        function displayResults({ plan, totalRaceDistanceKm }) {
+            const tableBody = document.getElementById('resultsTableBody');
+            tableBody.innerHTML = '';
+            let totalTime = 0, totalElevation = 0, totalCalories = 0;
+            plan.forEach((segment, index) => {
+                totalTime += segment.splitTime;
+                totalElevation += segment.elevationGain;
+                totalCalories += segment.calories;
+                const segmentName = segment.name ? `Vers ${segment.name}` : `${index + 1}`;
+                const row = `<tr class="bg-white border-b hover:bg-gray-50"><td class="px-6 py-4 font-medium text-gray-900">${segmentName}</td><td class="px-6 py-4">${(segment.distance/1000).toFixed(2)} km</td><td class="px-6 py-4">${segment.elevationGain.toFixed(0)} m</td><td class="px-6 py-4 font-semibold text-blue-600">${formatTime(segment.splitTime)}</td><td class="px-6 py-4">${formatPace(segment.pace)}</td><td class="px-6 py-4">${formatTime(segment.cumulativeTime)}</td><td class="px-6 py-4">${segment.calories.toFixed(0)} kcal</td><td class="px-6 py-4">${segment.carbsNeeded.toFixed(0)} g</td></tr>`;
+                tableBody.innerHTML += row;
+            });
+            document.getElementById('totalTime').textContent = formatTime(totalTime);
+            document.getElementById('totalDistance').textContent = `${totalRaceDistanceKm.toFixed(2)} km`;
+            document.getElementById('totalElevation').textContent = `${totalElevation.toFixed(0)} m`;
+            document.getElementById('totalCalories').textContent = `${totalCalories.toFixed(0)} kcal`;
+        }
+    </script>
+</body>
+</html>
