@@ -369,15 +369,26 @@
                     return reject(new Error("Fichier GPX malformé ou corrompu."));
                 }
 
-                const trackpoints = xmlDoc.getElementsByTagName('trkpt');
-                if (trackpoints.length === 0) {
-                    return reject(new Error("Aucun point de trace (<trkpt>) n'a été trouvé dans le fichier GPX. Il s'agit peut-être d'un itinéraire (<rte>), qui n'est pas supporté."));
+                const allTrackPoints = [];
+                const tracks = xmlDoc.getElementsByTagName('trk');
+                for (const trk of tracks) {
+                    const segments = trk.getElementsByTagName('trkseg');
+                    for (const seg of segments) {
+                        const pointsInSeg = seg.getElementsByTagName('trkpt');
+                        for (const pt of pointsInSeg) {
+                            allTrackPoints.push(pt);
+                        }
+                    }
+                }
+
+                if (allTrackPoints.length === 0) {
+                    return reject(new Error("Aucun point de trace (<trkpt>) n'a été trouvé dans une structure de trace (<trk>/<trkseg>) valide."));
                 }
 
                 const points = [];
                 let totalDistance = 0;
-                for (let i = 0; i < trackpoints.length; i++) {
-                    const pt = trackpoints[i];
+                for (let i = 0; i < allTrackPoints.length; i++) {
+                    const pt = allTrackPoints[i];
                     const lat = parseFloat(pt.getAttribute('lat'));
                     const lon = parseFloat(pt.getAttribute('lon'));
 
@@ -581,7 +592,7 @@
 
         function getMinettiCostFactor(slope) { /* ... (inchangé) ... */ if(slope >= 0) return 1 + config.minettiUphillCost * slope; else return 1 - config.minettiDownhillCost * slope; }
         function haversineDistance(p1, p2) { /* ... (inchangé) ... */ const R=6371e3; const φ1=p1.lat*Math.PI/180, φ2=p2.lat*Math.PI/180, Δφ=(p2.lat-p1.lat)*Math.PI/180, Δλ=(p2.lon-p1.lon)*Math.PI/180; const a=Math.sin(Δφ/2)*Math.sin(Δφ/2)+Math.cos(φ1)*Math.cos(φ2)*Math.sin(Δλ/2)*Math.sin(Δλ/2); return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));}
-        function parseTimeToSeconds(t) { /* ... (inchangé) ... */ const p=t.split(':').map(Number); if(p.length===3)return p[0]*3600+p[1]*60+p[2]; if(p.length===2)return p[0]*60+p[1]; return 0; }
+        function parseTimeToSeconds(t) { if (!t || typeof t !== 'string') return 0; const p=t.split(':').map(Number); if(p.some(isNaN)) return 0; if(p.length===3)return p[0]*3600+p[1]*60+p[2]; if(p.length===2)return p[0]*60+p[1]; return p[0] || 0; }
         function formatTime(s) { /* ... (inchangé) ... */ const h=Math.floor(s/3600).toString().padStart(2,'0'),m=Math.floor(s%3600/60).toString().padStart(2,'0'),sec=Math.floor(s%60).toString().padStart(2,'0'); return `${h}:${m}:${sec}`; }
         function formatPace(s) { /* ... (inchangé) ... */ if(isNaN(s)||!isFinite(s))return"00'00\"/km"; const m=Math.floor(s/60).toString().padStart(2,'0'),sec=Math.floor(s%60).toString().padStart(2,'0'); return `${m}'${sec}"/km`; }
 
