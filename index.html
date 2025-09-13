@@ -369,7 +369,9 @@
                     return reject(new Error("Fichier GPX malformé ou corrompu."));
                 }
 
-                const allTrackPoints = [];
+                let allTrackPoints = [];
+
+                // Priorité 1: Chercher les points de trace (<trkpt>) dans les <trkseg>
                 const tracks = xmlDoc.getElementsByTagName('trk');
                 for (const trk of tracks) {
                     const segments = trk.getElementsByTagName('trkseg');
@@ -381,8 +383,27 @@
                     }
                 }
 
+                // Priorité 2: Si pas de <trkpt>, chercher les points de route (<rtept>)
                 if (allTrackPoints.length === 0) {
-                    return reject(new Error("Aucun point de trace (<trkpt>) n'a été trouvé dans une structure de trace (<trk>/<trkseg>) valide."));
+                    const routes = xmlDoc.getElementsByTagName('rte');
+                    for (const route of routes) {
+                        const pointsInRoute = route.getElementsByTagName('rtept');
+                        for (const pt of pointsInRoute) {
+                            allTrackPoints.push(pt);
+                        }
+                    }
+                }
+
+                // Priorité 3: Si toujours rien, chercher les waypoints (<wpt>)
+                if (allTrackPoints.length === 0) {
+                    const waypoints = xmlDoc.getElementsByTagName('wpt');
+                    for (const pt of waypoints) {
+                        allTrackPoints.push(pt);
+                    }
+                }
+
+                if (allTrackPoints.length === 0) {
+                    return reject(new Error("Aucun point de trace (<trkpt>), de route (<rtept>) ou de waypoint (<wpt>) n'a été trouvé dans le fichier GPX."));
                 }
 
                 const points = [];
