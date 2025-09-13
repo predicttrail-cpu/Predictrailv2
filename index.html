@@ -364,16 +364,37 @@
             return new Promise((resolve, reject) => {
                 const parser = new DOMParser();
                 const xmlDoc = parser.parseFromString(gpxText, "text/xml");
+
+                if (xmlDoc.getElementsByTagName('parsererror').length) {
+                    return reject(new Error("Fichier GPX malformé ou corrompu."));
+                }
+
                 const trackpoints = xmlDoc.getElementsByTagName('trkpt');
-                if (trackpoints.length === 0) return reject(new Error("Aucun point de trace (<trkpt>) trouvé."));
+                if (trackpoints.length === 0) {
+                    return reject(new Error("Aucun point de trace (<trkpt>) n'a été trouvé dans le fichier GPX. Il s'agit peut-être d'un itinéraire (<rte>), qui n'est pas supporté."));
+                }
 
                 const points = [];
                 let totalDistance = 0;
                 for (let i = 0; i < trackpoints.length; i++) {
-                    const lat = parseFloat(trackpoints[i].getAttribute('lat'));
-                    const lon = parseFloat(trackpoints[i].getAttribute('lon'));
-                    const ele = parseFloat(trackpoints[i].getElementsByTagName('ele')[0].textContent);
-                    if (i > 0) totalDistance += haversineDistance(points[i - 1], { lat, lon });
+                    const pt = trackpoints[i];
+                    const lat = parseFloat(pt.getAttribute('lat'));
+                    const lon = parseFloat(pt.getAttribute('lon'));
+
+                    const eleEl = pt.getElementsByTagName('ele')[0];
+                    if (!eleEl) {
+                        return reject(new Error(`Le point n°${i + 1} n'a pas de donnée d'altitude (<ele>), qui est requise pour le calcul.`));
+                    }
+                    const ele = parseFloat(eleEl.textContent);
+
+                    if (isNaN(lat) || isNaN(lon) || isNaN(ele)) {
+                        return reject(new Error(`Les données du point n°${i + 1} (lat, lon, ou ele) sont invalides.`));
+                    }
+
+                    if (i > 0) {
+                        const prevPoint = points[i - 1];
+                        totalDistance += haversineDistance(prevPoint, { lat, lon });
+                    }
                     points.push({ lat, lon, ele, cumulativeDistance: totalDistance });
                 }
                 resolve(points);
