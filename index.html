@@ -31,6 +31,33 @@
             padding: 5px 15px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.2);
             z-index: 1000; font-size: 0.9em; pointer-events: none;
         }
+        /* Custom styles for info popovers */
+        .info-popover { position: relative; display: inline-block; }
+        .info-icon {
+            cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+            width: 1.25rem; height: 1.25rem; border-radius: 9999px;
+            background-color: #dbeafe; color: #2563eb; font-weight: bold;
+            font-size: 0.75rem; margin-left: 8px;
+        }
+        .info-icon:hover { background-color: #bfdbfe; }
+        .popover-content {
+            visibility: hidden; width: 280px; background-color: #ffffff;
+            color: #374151; text-align: left; border-radius: 8px;
+            padding: 12px; position: absolute; z-index: 10;
+            bottom: 125%; left: 50%; margin-left: -140px;
+            opacity: 0; transition: opacity 0.2s, visibility 0.2s;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15); border: 1px solid #e5e7eb;
+            font-size: 0.875rem; line-height: 1.5;
+        }
+        .popover-content h4 { font-weight: 600; margin-bottom: 8px; color: #1f2937; }
+        .popover-content ul { list-style-position: inside; padding-left: 4px; }
+        .popover-content li { margin-bottom: 4px; }
+        .popover-content::after {
+            content: ""; position: absolute; top: 100%; left: 50%;
+            margin-left: -5px; border-width: 5px; border-style: solid;
+            border-color: #ffffff transparent transparent transparent;
+        }
+        .info-popover:hover .popover-content { visibility: visible; opacity: 1; }
     </style>
 </head>
 <body class="bg-gray-100 text-gray-800">
@@ -73,28 +100,111 @@
 
         <div class="bg-white p-6 rounded-2xl shadow-lg mb-8">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <!-- Section des entrées utilisateur -->
+                <!-- Colonne 1: Athlète & Parcours -->
                 <div class="space-y-6">
-                    <h2 class="text-xl font-semibold border-b pb-2">1. Paramètres Athlète</h2>
+                    <h2 class="text-xl font-semibold border-b pb-2">1. Athlète & Parcours</h2>
+                    <div><label for="gpxFile" class="block text-sm font-medium text-gray-700">Fichier GPX du parcours</label><input type="file" id="gpxFile" accept=".gpx" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"></div>
                     <div class="grid grid-cols-2 gap-4">
                         <div><label for="weight" class="block text-sm font-medium text-gray-700">Votre Poids (kg)</label><input type="number" id="weight" value="70" class="mt-1 block w-full bg-gray-50 border border-gray-300 rounded-lg shadow-sm p-3 focus:ring-blue-500 focus:border-blue-500"></div>
                         <div><label for="gender" class="block text-sm font-medium text-gray-700">Sexe</label><select id="gender" class="mt-1 block w-full bg-gray-50 border border-gray-300 rounded-lg shadow-sm p-3 focus:ring-blue-500 focus:border-blue-500"><option value="homme" selected>Homme</option><option value="femme">Femme</option></select></div>
                     </div>
 
                     <h3 class="text-lg font-medium pt-2">Performances de Référence</h3>
+                    <p class="text-sm text-gray-500 -mt-2">Ajoutez des courses passées pour calibrer le modèle.</p>
                     <div id="reference-list" class="space-y-4"></div>
                     <button id="addReferenceBtn" type="button" class="w-full text-sm text-blue-600 hover:text-blue-800 font-medium py-2 border-2 border-dashed border-blue-300 rounded-lg hover:bg-blue-50 transition-colors duration-200">+ Ajouter une autre référence</button>
                 </div>
 
-                <!-- Section de configuration -->
+                <!-- Colonne 2: Configuration & Nutrition -->
                 <div class="space-y-6 bg-gray-50 p-6 rounded-2xl border">
-                    <h2 class="text-xl font-semibold border-b pb-2">2. Configuration du Modèle</h2>
-                     <p class="text-sm text-gray-500">Ajustez les multiplicateurs pour le parcours cible.</p>
-                    <div><label for="gpxFile" class="block text-sm font-medium text-gray-700">Charger un Fichier GPX</label><input type="file" id="gpxFile" accept=".gpx" class="mt-1 block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"></div>
-                    <div id="splitDistanceContainer"><label for="splitDistance" class="block text-sm font-medium text-gray-700">Diviser les segments tous les (km)</label><input type="number" id="splitDistance" value="5" class="mt-1 block w-full bg-white border border-gray-300 rounded-lg shadow-sm p-3 focus:ring-blue-500 focus:border-blue-500"></div>
-                    <div><label for="techMultiplier" class="block text-sm font-medium text-gray-700">Technicité du parcours cible (1.0 = facile, 1.3 = difficile)</label><input type="number" id="techMultiplier" value="1.05" step="0.01" class="mt-1 block w-full bg-white border border-gray-300 rounded-lg shadow-sm p-3 focus:ring-blue-500 focus:border-blue-500"></div>
-                    <div><label for="fatigueFactor" class="block text-sm font-medium text-gray-700">Facteur de Fatigue (% ralentissement final)</label><input type="number" id="fatigueFactor" value="15" step="1" class="mt-1 block w-full bg-white border border-gray-300 rounded-lg shadow-sm p-3 focus:ring-blue-500 focus:border-blue-500"></div>
-                    <div><label for="carbIntake" class="block text-sm font-medium text-gray-700">Objectif Glucides (g/heure)</label><input type="number" id="carbIntake" value="60" step="5" class="mt-1 block w-full bg-white border border-gray-300 rounded-lg shadow-sm p-3 focus:ring-blue-500 focus:border-blue-500"></div>
+                    <h2 class="text-xl font-semibold border-b pb-2">2. Configuration de la Course</h2>
+                    <div id="splitDistanceContainer"><label for="splitDistance" class="block text-sm font-medium text-gray-700">Découpage auto. des segments (km)</label><input type="number" id="splitDistance" value="5" class="mt-1 block w-full bg-white border border-gray-300 rounded-lg shadow-sm p-3 focus:ring-blue-500 focus:border-blue-500"></div>
+
+                    <div>
+                        <label for="techMultiplier" class="flex items-center text-sm font-medium text-gray-700">
+                            Technicité du parcours
+                            <span class="info-popover">
+                                <span class="info-icon">i</span>
+                                <div class="popover-content">
+                                    <h4>Technicité du Parcours :</h4>
+                                    <p class="text-xs">Ce facteur ajuste l'allure en fonction de la difficulté du terrain. Un chiffre plus élevé signifie un terrain plus lent et exigeant.</p>
+                                    <ul class="mt-2 text-xs list-disc list-inside">
+                                        <li><strong>1.0 :</strong> Route ou sentier très roulant.</li>
+                                        <li><strong>1.1 :</strong> Sentier forestier peu technique.</li>
+                                        <li><strong>1.2 :</strong> Sentier avec racines/pierres modérées.</li>
+                                        <li><strong>1.3+ :</strong> Terrain montagneux, technique.</li>
+                                    </ul>
+                                </div>
+                            </span>
+                        </label>
+                        <input type="number" id="techMultiplier" value="1.05" step="0.01" class="mt-1 block w-full bg-white border border-gray-300 rounded-lg shadow-sm p-3 focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+
+                    <div>
+                        <label for="runnerProfile" class="flex items-center text-sm font-medium text-gray-700">
+                            Profil de Coureur
+                            <span class="info-popover">
+                                <span class="info-icon">i</span>
+                                <div class="popover-content">
+                                    <h4>Profils de Coureur :</h4>
+                                    <ul class="space-y-2">
+                                        <li><strong>Diesel / Ultra:</strong> Endurance exceptionnelle, ralentit très peu.<br><em class="text-xs text-gray-500">Facteur suggéré: 5-10%</em></li>
+                                        <li><strong>Équilibré:</strong> Gestion standard, baisse de régime progressive.<br><em class="text-xs text-gray-500">Facteur suggéré: 12-20%</em></li>
+                                        <li><strong>Explosif / Court:</strong> Rapide au début, ralentit nettement.<br><em class="text-xs text-gray-500">Facteur suggéré: 20-30%</em></li>
+                                        <li><strong>Mauvais Gestionnaire:</strong> Départ rapide, effondrement final.<br><em class="text-xs text-gray-500">Facteur suggéré: 25-35%</em></li>
+                                    </ul>
+                                </div>
+                            </span>
+                        </label>
+                        <select id="runnerProfile" class="mt-1 block w-full bg-white border border-gray-300 rounded-lg shadow-sm p-3 focus:ring-blue-500 focus:border-blue-500">
+                            <option value="8">Diesel / Ultra</option>
+                            <option value="15" selected>Équilibré</option>
+                            <option value="25">Explosif / Court</option>
+                            <option value="30">Mauvais Gestionnaire</option>
+                        </select>
+                        <input type="hidden" id="fatigueFactor" value="15">
+                    </div>
+
+                    <h2 class="text-xl font-semibold border-b pb-2 mt-6">3. Nutrition & Hydratation</h2>
+                    <div>
+                        <label for="carbIntake" class="flex items-center text-sm font-medium text-gray-700">
+                            Objectif Glucides (g/heure)
+                            <span class="info-popover">
+                                <span class="info-icon">i</span>
+                                <div class="popover-content">
+                                    <h4>Apport en Glucides :</h4>
+                                    <p class="text-xs">L'énergie essentielle pour les efforts d'endurance. Visez un apport régulier pour éviter les baisses de régime.</p>
+                                    <ul class="mt-2 text-xs list-disc list-inside">
+                                        <li><strong>30-60 g/h:</strong> Efforts de 1 à 2.5h.</li>
+                                        <li><strong>60-90 g/h:</strong> Cible pour les ultras.</li>
+                                        <li><strong>90+ g/h:</strong> Pour athlètes élites.</li>
+                                    </ul>
+                                </div>
+                            </span>
+                        </label>
+                        <input type="number" id="carbIntake" value="60" step="5" class="mt-1 block w-full bg-white border border-gray-300 rounded-lg shadow-sm p-3 focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+
+                    <div class="mt-4">
+                        <label for="temperature" class="flex items-center text-sm font-medium text-gray-700">
+                            Température extérieure (°C)
+                            <span class="info-popover">
+                                <span class="info-icon">i</span>
+                                <div class="popover-content">
+                                    <h4>Estimation d'Hydratation :</h4>
+                                    <p class="text-xs">L'hydratation est cruciale et très personnelle. Cette suggestion est une base. Adaptez-la selon votre sueur, l'humidité et l'intensité.</p>
+                                    <ul class="mt-2 text-xs list-disc list-inside">
+                                        <li><strong>&lt; 10°C:</strong> 400-600 ml/h</li>
+                                        <li><strong>10-20°C:</strong> 500-700 ml/h</li>
+                                        <li><strong>20-25°C:</strong> 600-800 ml/h</li>
+                                        <li><strong>&gt; 25°C:</strong> 750-1000+ ml/h</li>
+                                    </ul>
+                                </div>
+                            </span>
+                        </label>
+                        <input type="number" id="temperature" value="15" class="mt-1 block w-full bg-white border border-gray-300 rounded-lg shadow-sm p-3 focus:ring-blue-500 focus:border-blue-500">
+                        <p id="hydrationSuggestion" class="text-sm text-blue-600 font-medium mt-2"></p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -165,6 +275,35 @@
             addReferenceRow();
             gpxFileInput.addEventListener('change', handleGpxFileUpload);
             calculateBtn.addEventListener('click', handleCalculation);
+
+            // Link runner profile select to hidden fatigue factor input
+            const runnerProfileSelect = document.getElementById('runnerProfile');
+            const fatigueFactorInput = document.getElementById('fatigueFactor');
+            runnerProfileSelect.addEventListener('change', (e) => {
+                fatigueFactorInput.value = e.target.value;
+            });
+
+            // Hydration suggestion logic
+            const temperatureInput = document.getElementById('temperature');
+            const hydrationSuggestionP = document.getElementById('hydrationSuggestion');
+            function updateHydrationSuggestion() {
+                const temp = parseInt(temperatureInput.value, 10);
+                let suggestion = "N/A";
+                if (isNaN(temp)) {
+                    suggestion = "Entrez une température valide.";
+                } else if (temp < 10) {
+                    suggestion = "400-600 ml/heure";
+                } else if (temp >= 10 && temp < 20) {
+                    suggestion = "500-700 ml/heure";
+                } else if (temp >= 20 && temp < 25) {
+                    suggestion = "600-800 ml/heure";
+                } else { // temp >= 25
+                    suggestion = "750-1000+ ml/heure";
+                }
+                hydrationSuggestionP.textContent = `Suggestion: ${suggestion}`;
+            }
+            temperatureInput.addEventListener('input', updateHydrationSuggestion);
+            updateHydrationSuggestion(); // Initial call
         });
 
         function addReferenceRow() { /* ... (fonction inchangée) ... */
