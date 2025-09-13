@@ -188,8 +188,18 @@
 
             mapSection.classList.remove('hidden');
             const gpxText = await file.text();
-            displayGpxOnMap(gpxText);
-            gpxPointsCache = await parseGPX(gpxText);
+
+            try {
+                displayGpxOnMap(gpxText);
+                gpxPointsCache = await parseGPX(gpxText);
+            } catch (error) {
+                alert(`Erreur lors du traitement du fichier GPX : ${error.message}`);
+                // Clear cache and map if parsing fails
+                gpxPointsCache = [];
+                if (map && gpxLayer) {
+                    map.removeLayer(gpxLayer);
+                }
+            }
         }
 
         function displayGpxOnMap(gpxText) {
